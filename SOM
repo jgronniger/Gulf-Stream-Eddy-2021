@@ -1,0 +1,172 @@
+###Load libraries
+
+
+library(kohonen)
+library(phyloseq)
+library(ggplot2)
+library(tidyverse)
+library(scales)
+library(ggpubr)
+library(vegan)
+
+
+
+
+###Importing biom ASV table with absolute abundances as phyloseq object and adding taxonomy labels
+
+
+SWbiom <- import_biom("~/Desktop/SW_eddy_paper/SW_files/SW_ASV_absabundance.biom")
+
+sw <- merge_phyloseq(SWbiom)
+colnames(tax_table(sw)) <- c("Kingdom", "Phylum", "Class", "Order", "Family",  "Genus", "Species")
+
+
+##Convert ASV table to relative abundance
+
+
+swprop <- transform_sample_counts(sw, function(otu) otu/sum(otu))
+
+
+
+###Read in metadata for SW ASV table
+
+SWmeta = read.csv("~/Desktop/SW_DNA_meta.csv", header=T)
+
+
+
+###Convert phyloseq object to usable matrix
+
+swmelt<-psmelt(swprop)
+
+
+
+
+###Extract abundance matrix from the phyloseq object
+
+
+OTUsw = as(otu_table(swprop), "matrix")
+
+# Coerce to data.frame
+OTUdf = as.data.frame(t(OTUsw))
+
+
+
+###################################################################################################################
+###SOM community segmentation and dimension reduction
+
+
+
+data=read.csv('~/Desktop/SW_files/SW_ralabundance_asvtable.csv', row.names = 1, header=TRUE)
+
+# Kohonen needs a numeric matrix
+edge.norm <- as.matrix(data)
+
+
+## Define a grid.  The bigger the better, but you want many fewer units in the grid
+## than samples.  1:5 is a good ballpark, here we are minimal.
+som.grid <- somgrid(xdim = 4, ydim=4, topo="hexagonal")
+
+## Now build the ESOM!  It is worth playing with the parameters, though in
+## most cases you will want the circular neighborhood and toroidal map structure.
+som.model.edges <- som(edge.norm, 
+                 grid = som.grid, 
+                 rlen = 100,
+                 alpha = c(0.05,0.01),
+                 keep.data = TRUE,
+               )
+
+plot(som.model.edges, type = 'mapping', pch=16, col=as.factor(SWmeta$water_mass))
+#add.cluster.boundaries(som.model.edges, som.cluster.edges$cluster)
+
+
+plot(som.model.edges, type = 'counts', pch = 19, palette.name = topo.colors)
+
+
+som.model.edges$codes=as.data.frame(som.model.edges$codes)
+wss.edges <- (nrow(som.model.edges$codes)-1)*sum(apply(som.model.edges$codes,2,var)) 
+for (i in 2:15) {
+  wss.edges[i] <- sum(kmeans(som.model.edges$codes, centers=i)$withinss)
+}
+
+plot(wss.edges,
+     pch = 19,
+     ylab = 'Within-clusters sum of squares',
+     xlab = 'K')
+
+
+
+###Select cluster number and run kmeans 
+
+#Three clusters
+
+k <- 3
+som.cluster.edges <- kmeans(som.model.edges$codes, centers = k)
+
+
+
+plot(som.model.edges,
+     main = '',
+     type = "property",
+     property = som.cluster.edges$cluster,
+     palette.name = topo.colors)
+add.cluster.boundaries(som.model.edges, som.cluster.edges$cluster)
+
+
+som.cluster.edges$cluster[som.model.edges$unit.classif]
+
+# get vector with cluster value for each original data sample
+cluster_assignment <- som.cluster.edges$cluster[som.model.edges$unit.classif]
+# for each of analysis, add the assignment as a column in the original data:
+
+SWmeta$kcluster3u = cluster_assignment
+
+
+k <- 4
+som.cluster.edges <- kmeans(som.model.edges$codes, centers = k)
+
+
+
+plot(som.model.edges,
+     main = '',
+     type = "property",
+     property = som.cluster.edges$cluster,
+     palette.name = topo.colors)
+add.cluster.boundaries(som.model.edges, som.cluster.edges$cluster)
+
+
+som.cluster.edges$cluster[som.model.edges$unit.classif]
+
+# get vector with cluster value for each original data sample
+cluster_assignment <- som.cluster.edges$cluster[som.model.edges$unit.classif]
+# for each of analysis, add the assignment as a column in the original data:
+
+SWmeta$kcluster4u = cluster_assignment
+
+
+#Five clusters
+
+k <- 5
+som.cluster.edges <- kmeans(som.model.edges$codes, centers = k)
+
+
+
+plot(som.model.edges,
+     main = '',
+     type = "property",
+     property = som.cluster.edges$cluster,
+     palette.name = topo.colors)
+add.cluster.boundaries(som.model.edges, som.cluster.edges$cluster)
+
+
+som.cluster.edges$cluster[som.model.edges$unit.classif]
+
+# get vector with cluster value for each original data sample
+
+cluster_assignment <- som.cluster.edges$cluster[som.model.edges$unit.classif]
+
+# for each of analysis, add the assignment as a column in the original data:
+
+SWmeta$kcluster5u = cluster_assignment
+
+write.csv(SWmeta, "~/Desktop/SWmeta_somu.csv")
+

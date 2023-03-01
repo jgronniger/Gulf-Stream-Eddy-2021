@@ -2,6 +2,7 @@
 
 #This respository contains the code used to analyze data and produce figures associated with the following paper:
 
+Gronniger, J., Gray, P.C., Niebergall, A.K., Johnson, Z.I., & Hunt, D.E. (2023). A Gulf Stream cold-core eddy harbors a distinct microbiome compared to environmentally-similar adjacent waters. (p.2023.02.23.529726). bioRxiv. https://doi.org/10.1101/2023.02.23.529726
 
 
 Abstract

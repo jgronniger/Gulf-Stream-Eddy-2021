@@ -1,0 +1,1653 @@
+---
+title: "SW_final_figures"
+author: "Jessica Gronniger"
+date: "8/1/2022"
+output: html_document
+---
+
+```{r}
+library(kohonen)
+library(phyloseq)
+library(ggplot2)
+library(tidyverse)
+library(scales)
+library(ggpubr)
+library(vegan)
+library(heatmap.plus)
+library(RColorBrewer)
+library(heatmaply)
+library(picante)
+library(dplyr)
+library(biomformat)
+library(gplots)
+
+```
+
+
+#####NMDS plot of Bray-Curtis dissimilarity with eigenvectors#####################
+#FIGURE 1B#
+###NMDS plot
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", row.names="Sample", check.names=F)
+swmeta=read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv", row.names="Sample")
+sw_otus_dist = vegdist(swasv, "bray")
+
+swNMDS = metaMDS(sw_otus_dist)
+
+sw_data.scores <- as.data.frame(scores(swNMDS, display="sites"))  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+
+#write.csv(sw_data.scores, "~/Desktop/SW_nmds_data_scores.csv", row.names=T)
+
+```
+###Stress plot and stress value for NMDS
+```{r}
+
+stressplot(swNMDS)
+swNMDS$stress
+
+```
+#Read in NMDS data scores (make sure they are in the right order)
+```{r}
+
+nmdsall <- read.csv("~/Desktop/SW_final_data/SW_nmds_data_scores.csv", header=T)
+```
+
+###Run multiple regression to get environmental vectors for NMDS plot
+```{r}
+
+##Select environmental variables
+env_meta = swmeta[c("Temp", "Sal", "Syn", "PicoCyano", "Bacteria", "ChlaAvg","NO3", "PO4", "SIL", "NH4", "NO2")]
+
+##Run regression
+env = envfit(swNMDS, env_meta, permutations=9999, na.rm=TRUE)
+
+```
+###See regression results and Bonferonni adjusted p-values
+```{r}
+
+ef.adj <- env 
+pvals.adj <- p.adjust (env$vectors$pvals, method = 'bonferroni')
+ef.adj$vectors$pvals <- pvals.adj
+ef.adj
+
+```
+
+##Generate vectors for environmental regression
+```{r}
+library(ggrepel)
+en_coord_cont = as.data.frame(scores(env, "vectors"))*ordiArrowMul(env)
+
+en_coord_cat = as.data.frame(scores(env, "factors"))*ordiArrowMul(env)
+
+xend = en_coord_cont$NMDS1*0.4
+yend = en_coord_cont$NMDS2*0.4
+
+```
+
+
+######Generating NMDS plot with environmental vectors 
+```{r}
+#svg("~/Desktop/SW_NMDS_envfit2.svg", width=12, height=8)
+ggplot(data=nmdsall, aes(x=NMDS1, y=NMDS2)) + 
+  geom_point(data=nmdsall, aes(colour=as.factor(swmeta$kcluster4), shape=swmeta$water_mass), size=5) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+
+  scale_shape_manual(values = c("eddy" = 17, "gulfstream" = 3, "shelf" = 15, "slope" = 19)) +
+  labs(color="SOM Cluster", shape="Water Mass")+
+  stat_ellipse(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),level=0.95)+
+  geom_segment(aes(x=0, y=0, , xend=xend, yend=yend), data=en_coord_cont, size=0.5, arrow = arrow(length = unit(0.03, "npc"))) +
+geom_text_repel(data=en_coord_cont, aes(x=xend, y=yend),label=row.names(en_coord_cont)) +
+  theme_bw() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank())
+
+#dev.off()
+```
+###Running stats to see if NMDS clusters are significantly different 
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", header=T, row.names=1, check.names=F)
+SWmeta=read_csv("~/Desktop/SW_final_data/SW_DNA_meta.csv")
+
+```
+
+
+```{r}
+############################## community statistics ###################################
+library("vegan")
+library("RVAideMemoire") 
+
+otutable <- swasv
+str(otutable)
+
+#betadisper
+bd <- betadisper(sw_otus_dist, swmeta$kcluster4)
+bd
+boxplot(bd)
+anova(bd)
+permutest(bd)
+#adonis
+otutable.adonis <- adonis(otutable[,1:5061] ~swmeta$kcluster4, data=otutable, permutations = 999, method = 'bray')
+otutable.adonis
+
+```
+
+```{r}
+anosim(sw_otus_dist, swmeta$kcluster4, permutations=9999, "bray")
+
+#pairwise.perm.manova
+pairperm <- pairwise.perm.manova(sw_otus_dist, swmeta$kcluster4, nperm=9999, "bray")
+pairperm
+
+```
+
+###Running environmental regression on individual clusters
+
+```{r}
+nmdsall2 <- read.csv("~/Desktop/SW_final_data/SW_nmds_data_scores_cluster_order.csv", header=T)
+k1 = nmdsall2[1:8,2:3]
+meta1 = env_meta[1:8,]
+k2 = nmdsall2[9:20,2:3]
+meta2 = env_meta[9:20,]
+k3 = nmdsall2[21:33,2:3]
+meta3 = env_meta[21:33,]
+k4 = nmdsall2[34:49,2:3]
+meta4 = env_meta[34:49,]
+##Run regression
+env1 = envfit(k1, meta1, permutations=9999, na.rm=TRUE)
+
+#Bonferroni corrected p-values
+ef.adj1 <- env1 
+pvals.adj1 <- p.adjust (env1$vectors$pvals, method = 'bonferroni')
+ef.adj1$vectors$pvals <- pvals.adj1
+ef.adj1
+
+env2 = envfit(k2, meta2, permutations=9999, na.rm=TRUE)
+
+#Bonferroni corrected p-values
+ef.adj2 <- env2 
+pvals.adj2 <- p.adjust (env2$vectors$pvals, method = 'bonferroni')
+ef.adj2$vectors$pvals <- pvals.adj2
+ef.adj2
+
+env3 = envfit(k3, meta3, permutations=9999, na.rm=TRUE)
+
+#Bonferroni corrected p-values
+ef.adj3 <- env3 
+pvals.adj3 <- p.adjust (env3$vectors$pvals, method = 'bonferroni')
+ef.adj3$vectors$pvals <- pvals.adj3
+ef.adj3
+
+env4 = envfit(k4, meta4, permutations=9999, na.rm=TRUE)
+
+#Bonferroni corrected p-values
+ef.adj4 <- env4 
+pvals.adj4 <- p.adjust (env4$vectors$pvals, method = 'bonferroni')
+ef.adj4$vectors$pvals <- pvals.adj4
+ef.adj4
+
+```
+
+##################################Figure 2###################################
+
+#####Average community plot by cluster
+```{r}
+
+mydata<-read_biom("~/Desktop/SW_final_data/SW_ASVtable_abs_abundance.biom")
+otutable<-as.data.frame(as.matrix(biom_data(mydata))) 
+taxonomy <- observation_metadata(mydata) 
+
+OTU = otu_table(as.data.frame(otutable), taxa_are_rows = TRUE)
+TAX = tax_table(as.matrix(taxonomy))
+sample <- as.data.frame(read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv", row.names=1, header=T, sep=","))
+SAM = sample_data(sample, errorIfNULL = T)
+
+SWphylo <- phyloseq(OTU,TAX, SAM)
+SWphylo
+```
+```{r}
+colnames(tax_table(SWphylo)) <- c("Confidence", "Kingdom", "Phylum", "Class", "Order", "Family",  "Genus", "Species")
+
+```
+```{r}
+
+df <- as.data.frame(lapply(sample_data(SWphylo),function (y) if(class(y)!="factor" ) as.factor(y) else y),stringsAsFactors=T)
+row.names(df) <- sample_names(SWphylo)
+sample_data(SWphylo) <- sample_data(df)
+
+```
+
+```{r}
+
+#Export tax table
+tax.clean <- data.frame(tax_table(SWphylo))
+
+#Change all columns to characters (otherwise everything becomes NA
+for (i in 1:8){ tax.clean[,i] <- as.character(tax.clean[,i])}
+
+
+```
+
+```{r}
+for (i in 1:nrow(tax.clean)){
+if (!is.na(tax.clean[i,7]) && tax.clean[i,7] == "g__Synechococcus"){tax.clean$Family[i] <-"f__Synechococcus"}
+  else if (!is.na(tax.clean[i,7]) && tax.clean[i,7] == "g__Prochlorococcus"){tax.clean$Family[i] <-"f__Prochlorococcus"}}
+
+```
+
+```{r}
+
+tax_table(SWphylo) = as.matrix(tax.clean)
+
+```
+
+
+```{r}
+SWphylo <- tax_glom(SWphylo, "Family")
+SWphylo =transform_sample_counts(SWphylo, function(x) x / sum(x))
+```
+###kcluster must be a character for this to work (i.e K1 instead of just "1")
+```{r}
+swmerge <- merge_samples(SWphylo,"kcluster4")
+
+swmerge =transform_sample_counts(swmerge, function(x) x / sum(x))
+
+swmelt<-psmelt(swmerge)
+
+```
+
+```{r}
+othermelt = swmelt
+
+othermelt$Family[othermelt$Abundance < 0.01] <- "Other"
+
+```
+
+
+```{r}
+
+# Classic palette BuPu, with 4 colors
+coul <- brewer.pal(8, "Dark2") 
+
+# Add more colors to this palette :
+coul <- colorRampPalette(coul)(10)
+ 
+
+```
+###Family plot
+```{r}
+#svg("~/Desktop/SW_average_cluster_comm.svg", height=8, width=8)
+ggplot(data=othermelt, aes(x=Sample, y=Abundance, fill=Family), color="black") + geom_bar(aes(x=Sample, y=Abundance), stat="identity", position="stack") + guides(fill=guide_legend(ncol=1)) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_fill_manual(values = coul)
+#dev.off()
+```
+##############Figure 3#####################
+
+####################16s heatmap of significant GJAM taxa###########
+#All ASVs with at least one significant beta coefficient
+```{r}
+
+
+top80 = read.csv("~/Desktop/SW_final_data/SW_ASVheatmap_gjam_ordered.csv", row.names=1, check.names = F)
+
+
+SWmeta = read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv", row.names=1)
+
+
+##reordering for kcluster
+
+top80k <- top80[, c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60", "SW1", "SW2", "SW3", "SW36", "SW38", "SW4", "SW44", "SW6", "SW62", "SW8", "SW84", "SW86", "SW10", "SW18", "SW20", "SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW48", "SW52", "SW68", "SW12", "SW14", "SW16", "SW28", "SW46", "SW50", "SW64", "SW66", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80", "SW82")] 
+
+
+
+SWmetak <- SWmeta[ c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60", "SW1", "SW2", "SW3", "SW36", "SW38", "SW4", "SW44", "SW6", "SW62", "SW8", "SW84", "SW86", "SW10", "SW18", "SW20", "SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW48", "SW52", "SW68", "SW12", "SW14", "SW16", "SW28", "SW46", "SW50", "SW64", "SW66", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80", "SW82"),] 
+
+
+
+log80k = as.matrix(log(top80k+1))
+
+
+
+colors = c(seq(0,5,length=1),seq(5,10,length=1),seq(10,11, length=1), seq(11, 11.5, length=1),seq(11.5, 12, length=1), seq(12, 12.5, length=1), seq(12.5, 13, length=1), seq(13,13.5, length=1), seq(13.5,14, length=1),seq(14,15,length=1), seq(15,16, length=1))
+
+my_palette <- colorRampPalette(c("violet", "orchid4", "purple3","mediumblue","darkblue","forestgreen", "green3", "yellow", "orange", "red", "darkred" ))(n = 25)
+
+
+#svg("~/Desktop/SW_gjamall_ASVheatmap.svg", height=12, width=20)
+heatmap.2(log80k, trace="none", scale="none", col=my_palette,Rowv=FALSE,Colv=FALSE, cexRow=0.9, margins=c(4,5), key.title="Color Scale", key.xlab="",keysize = 2, key.ylab=NA, ColSideColors = SWmetak$kcolor, symkey=F)
+#dev.off()
+```
+###Heatmap GJAM beta coefficients only SOM (all significant beta coefficients)
+```{r}
+sigbeta=read.csv("~/Desktop/SW_final_data/SW_gjamBeta_all_ordered_NA.csv", header=T, check.names=F)
+
+```
+
+```{r}
+sigbeta1=as.matrix(sigbeta[,2:5])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "red","red1", "red2", "red3", "red4", "darkred"))(n = 20)
+
+#svg("~/Desktop/SW_gjam_beta_heatmap.svg", height=12, width=20)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE, Rowv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Beta Coefficient", key.xlab="",keysize = 2, key.ylab=NA, labRow =sigbeta$ASV, symkey = TRUE)
+
+#dev.off()
+
+```
+
+#####Suplemental Figures######
+
+
+###Boxplots of temperature and salinity by oceanographic water mass grouping
+```{r}
+SWmeta = read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv", row.names=1)
+
+my_comparisons <- list( c("shelf", "slope"), c("shelf", "gulfstream"), c("shelf", "eddy"), c("slope", "gulfstream"), c("slope", "eddy"), c("gulfstream", "eddy") )
+
+level_order = c("shelf", "slope", "gulfstream", "eddy")
+
+compare_means(Temp ~ water_mass,  data = SWmeta)
+
+t=ggplot(swmeta, aes(x=factor(water_mass, level=level_order), y=Temp, color=water_mass))+
+  geom_boxplot()+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=20), axis.title=element_text(size=20))+
+  xlab("") +ylab("Temperature (C)") +scale_x_discrete(labels=c("Shelf", "Slope", "Gulf Stream", "Eddy"))+
+  stat_compare_means(comparisons=my_comparisons, size=8) 
+
+compare_means(Sal ~ water_mass,  data = SWmeta)
+
+s=ggplot(swmeta, aes(x=factor(water_mass, level=level_order), y=Sal, color=water_mass))+
+  geom_boxplot()+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=20), axis.title=element_text(size=20))+
+  xlab("") +ylab("Salinity (PSU)")+scale_x_discrete(labels=c("Shelf", "Slope", "Gulf Stream", "Eddy"))+
+  stat_compare_means(comparisons=my_comparisons, size=8) 
+
+svg("~/Desktop/SW_temp_sal_boxplots.svg", height=10, width=20)
+
+ggarrange(t, s, nrow=1, ncol=2,align="hv", legend="none", labels=c("A", "B"),font.label = list(size = 35, color = "black"))
+
+dev.off()
+```  
+####Comparison of oceanographic water masses and SOM grouping on NMDS plots 
+```{r}
+ocea = ggplot() + 
+  geom_point(data=nmdsall,aes(x=NMDS1,y=NMDS2, colour=swmeta$water_mass),size=4)  +
+  stat_ellipse(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=swmeta$water_mass),level=0.95)+
+  scale_color_discrete(breaks=c("shelf", "slope", "gulfstream", "eddy"))+
+  labs(color="Water Mass")+
+  theme_bw() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank(),legend.position="top")+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12), axis.title=element_text(size=12))+theme(legend.title = element_text(size=14),
+        legend.text = element_text(size=12))
+
+
+som = ggplot() + 
+  geom_point(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),size=4)  +
+  stat_ellipse(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),level=0.95)+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+
+  labs(color="SOM Cluster")+
+  theme_bw() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank(), legend.position="top")+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12), axis.title=element_text(size=12))  +theme(legend.title = element_text(size=14),
+        legend.text = element_text(size=12))
+
+
+svg("~/Desktop/SW_comp_NMDS.svg", height=8, width=12)
+ggarrange(ocea, som, labels=c("A", "B"))
+dev.off()
+```
+##Boxplots of diversity metrics by cluster
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", check.names=F)
+swmeta=read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv")
+
+swdata=merge(swasv, swmeta, by="Sample")
+```
+
+```{r}
+# Shannon's H'
+H <- diversity(swdata[,2:5062])
+
+# Observed Richness
+richness <- specnumber(swdata[,2:5062])  
+
+# Pielou's Evenness
+evenness <- H/log(richness)
+  
+# Create alpha diversity dataframe including environmental data
+alpha <- cbind(shannon = H, richness = richness, pielou = evenness, swmeta)
+head(alpha)
+```
+```{r}
+
+my_comparisons <- list( c("K1", "K2"), c("K1", "K3"), c("K1", "K4"), c("K2", "K3"), c("K2", "K4"), c("K3", "K4") )
+
+compare_means(shannon ~ kcluster4,  data = alpha, p.adjust.method = "bonferroni")
+plot.shan <- ggplot(alpha, aes(x = kcluster4, y = shannon, colour = kcluster4)) +
+  geom_boxplot(size = 1) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF")) +
+  ylab("Shannon's H'") + 
+  xlab("") +
+  theme_bw() +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+  stat_compare_means(comparisons=my_comparisons) 
+
+compare_means(richness ~ kcluster4,  data = alpha, p.adjust.method = "bonferroni")
+plot.rich <-ggplot(alpha, aes(x = kcluster4, y = richness, colour = kcluster4)) +
+  geom_boxplot(size = 1) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF")) +
+  ylab("Species Richness") +
+  xlab("") +
+  theme_bw() +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+  stat_compare_means(comparisons=my_comparisons) 
+
+compare_means(pielou ~ kcluster4,  data = alpha, p.adjust.method = "bonferroni")
+plot.even <- ggplot(alpha, aes(x = kcluster4, y = pielou, colour = kcluster4)) +
+  geom_boxplot(size = 1) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF")) +
+  ylab("Pielou's Evenness") +
+  xlab("") +
+  theme_bw() +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  stat_compare_means(comparisons=my_comparisons) 
+
+legend <- get_legend(plot.even)
+
+```
+```{r}
+svg("~/Desktop/SW_richness.svg", height=4, width=10)
+plot_grid(plot.shan + theme(legend.position = "none"), plot.rich + theme(legend.position = "none"), plot.even + theme(legend.position = "none"),ncol = 3)
+dev.off()
+```
+
+
+######Boxplots of environmental variables seperated by kcluster#####################
+```{r}
+
+if(!require(survminer)) install.packages("survminer")
+library(multcompView)
+```
+```{r}
+
+# analysis of variance
+anova <- aov(weight ~ feed, data = chickwts)
+
+# Tukey's test
+tukey <- TukeyHSD(anova)
+
+# compact letter display
+cld <- multcompLetters4(anova, tukey)
+
+# table with factors and 3rd quantile
+dt <- group_by(chickwts, feed) %>%
+  summarise(w=mean(weight), sd = sd(weight)) %>%
+  arrange(desc(w))
+
+# extracting the compact letter display and adding to the Tk table
+cld <- as.data.frame.list(cld$feed)
+dt$cld <- cld$Letters
+
+print(dt)
+```
+
+```{r}
+as.data.frame(compare_means(Temp ~ kcluster4,  data = SWmeta))
+
+
+```
+
+
+```{r}
+my_comparisons <- list( c("K1", "K2"), c("K1", "K3"), c("K1", "K4"), c("K2", "K3"), c("K2", "K4"), c("K3", "K4") )
+
+compare_means(Temp ~ kcluster4,  data = SWmeta)
+
+temp = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=Temp,color=as.factor(kcluster4)))+
+  geom_boxplot() +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF")) + theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") + ylab("Temperature (C)")+
+  stat_compare_means(comparisons=my_comparisons) +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+compare_means(Sal ~ kcluster4,  data = SWmeta)
+
+sal = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=Sal, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") +ylab("Salinity (ppt)")+
+  stat_compare_means(comparisons=my_comparisons) +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+compare_means(ChlaAvg ~ kcluster4,  data = SWmeta)
+
+chl = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=ChlaAvg, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+ scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") +ylab("Chlorophylla (ug/L)")+
+ stat_compare_means(comparisons=my_comparisons)    +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+compare_means(NO3 ~ kcluster4,  data = SWmeta)
+
+NO3 = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=NO3, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  xlab("") +ylab("NO3 (uM)")+
+  stat_compare_means(comparisons=my_comparisons)  +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+compare_means(PO4 ~ kcluster4,  data = SWmeta)
+
+PO4 = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=PO4, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") +ylab("PO4 (uM)")+
+  stat_compare_means(comparisons=my_comparisons)   +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1))) 
+
+compare_means(SIL ~ kcluster4,  data = SWmeta)
+
+Sil = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=SIL, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") +ylab("SiO4 (uM)")+
+  stat_compare_means(comparisons=my_comparisons)   +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+compare_means(NO2 ~ kcluster4,  data = SWmeta)
+
+NO2 = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=NO2, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") + ylab("NO2 (uM)")+
+  stat_compare_means(comparisons=my_comparisons)  +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1))) 
+
+compare_means(NH4 ~ kcluster4,  data = SWmeta)
+
+NH4 = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=NH4, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") +ylab("NH4 (uM)")+
+  stat_compare_means(comparisons=my_comparisons) +
+   scale_y_continuous(expand = expansion(mult = c(0, 0.1)))  
+
+compare_means(Bacteria ~ kcluster4,  data = SWmeta)
+
+bact = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=Bacteria, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") + ylab("Bacteria (cells/mL)")+scale_y_continuous(labels = label_scientific(),expand = expansion(mult = c(0, 0.1)))+
+  stat_compare_means(comparisons=my_comparisons)  
+
+compare_means(Syn ~ kcluster4,  data = SWmeta)
+
+syn = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=Syn, color=as.factor(kcluster4)))+
+  geom_boxplot()+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") + ylab("Synechococcus (cells/mL)")+scale_y_continuous(labels = label_scientific(),expand = expansion(mult = c(0, 0.1)))+
+  stat_compare_means(comparisons=my_comparisons)  
+
+compare_means(PicoCyano ~ kcluster4,  data = SWmeta)
+
+picoCyano = ggplot(SWmeta, aes(x=as.factor(kcluster4), y=PicoCyano, color=as.factor(kcluster4)))+
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+
+  geom_boxplot() +
+  theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12), axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  xlab("") + ylab("Picocyanobacteria (cells/mL)")+ scale_y_continuous(labels = label_scientific(),expand = expansion(mult = c(0, 0.1)))+
+  stat_compare_means(comparisons=my_comparisons)  
+
+  
+```
+```{r}
+ggplot(SWmeta, aes(x=as.factor(kcluster4), y=Syn, color=as.factor(kcluster4)))+
+  geom_boxplot()+ 
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text=element_text(size=12),axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  xlab("") + ylab("Synechococcus (cells/mL)")+scale_y_continuous(labels = label_scientific(),expand = expansion(mult = c(0, 0.1)))+
+  stat_compare_means(comparisons=my_comparisons)  
+```
+
+```{r}
+#svg("~/Desktop/SW_env_kcluster_boxplotscomp.svg", width=20, height=12)
+
+ggarrange(temp, sal, chl, NO3, PO4, Sil, NO2, NH4,bact, syn, picoCyano, 
+          labels = c("A", "B", "C", "D", "E", "F", "H", "I", "J", "K", "L"),
+          ncol = 4, nrow = 4, common.legend=T, align="hv", legend = c("bottom", "right"))
+#dev.off()
+```
+
+###Only GS and eddy significant env factors
+```{r}
+
+gse = subset(SWmeta, kcluster4=="K3" | kcluster4== "K4")
+```
+```{r}
+
+PO4
+
+```
+
+
+####################16s heatmap ordered by category (kcluster)###########
+```{r}
+
+
+top50 = t(read.csv("~/Desktop/SW_heatmap_top50.csv", row.names=1, check.names = F))
+
+
+SWmeta = read.csv("~/Desktop/SW_DNA_meta.csv", row.names=1)
+
+```
+##reordering for kcluster
+```{r}
+top50k <- top50[, c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60", "SW1", "SW2", "SW3", "SW36", "SW38", "SW4", "SW44", "SW6", "SW62", "SW8", "SW84", "SW86", "SW10", "SW18", "SW20", "SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW48", "SW52", "SW68", "SW12", "SW14", "SW16", "SW28", "SW46", "SW50", "SW64", "SW66", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80", "SW82")] 
+
+
+```
+```{r}
+SWmetak <- SWmeta[ c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60", "SW1", "SW2", "SW3", "SW36", "SW38", "SW4", "SW44", "SW6", "SW62", "SW8", "SW84", "SW86", "SW10", "SW18", "SW20", "SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW48", "SW52", "SW68", "SW12", "SW14", "SW16", "SW28", "SW46", "SW50", "SW64", "SW66", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80", "SW82"),] 
+
+
+```
+```{r}
+
+log50k = as.matrix(log(top50k+1))
+
+```
+
+```{r}
+
+colors = c(seq(0,5,length=5),seq(5,10,length=5),seq(10,11, length=10), seq(11, 12, length=10),seq(12, 13, length=10), seq(13,14, length=10),seq(14,15,length=10), seq(15,16, length=10))
+
+my_palette <- colorRampPalette(c("gray", "violet", "orchid4", "purple3", "midnightblue","mediumblue", "royalblue4","darkblue","forestgreen", "green4", "green3", "yellow", "orange", "orangered", "red", "darkred" ))(n = 100)
+
+```
+
+
+```{r}
+lefsecode = c("#FFFFFF","#FFFFFF","#006600","#FFFFFF","#3399FF","#006600","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#006600","#FFFFFF","#FFFFFF","#0000CC","#FFFFFF","#FFFFFF","#3399FF","#FFFFFF","#FFFFFF","#0000CC","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#006600","#006600","#00CC00","#FFFFFF","#FFFFFF","#FFFFFF","#006600","#0000CC","#FFFFFF","#006600","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#0000CC","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#006600","#FFFFFF")
+
+#svg("~/Desktop/SW_top50_heatmapKEY.svg", height=12, width=20)
+heatmap.2(log50k, trace="none", scale="none", col=my_palette,Rowv=FALSE,Colv=FALSE, cexRow=0.9, margins=c(4,5), key.title="Color Scale", key.xlab="",keysize = 2, key.ylab=NA, ColSideColors = SWmetak$kcolor, RowSideColors=lefsecode, symkey=F)
+#dev.off()
+```
+
+###Getting list of taxonomic assignments for heatmap ASVs
+```{r}
+
+tax = read.csv("~/Desktop/SW_tax.csv", header=T)
+asv = read.csv("~/Desktop/SW_heatmap_ASV.csv", header=T)
+
+heat_tax = merge(tax, asv, by="ASV")
+
+write.csv(heat_tax, "~/Desktop/SW_heatmap_taxa.csv")
+```
+
+###Heatmap GJAM beta coefficients only SOM top50 heatmap order (includes only significant beta coefficients)
+```{r}
+sigbeta=read.csv("~/Desktop/SW_gjam_onlysig12_ordered_NA.csv", header=T, check.names=F)
+
+sigbeta1=as.matrix(sigbeta[,2:5])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "red","red1", "red2", "red3", "red4", "darkred"))(n = 100)
+#svg("~/Desktop/SW_gjam_heatmap_onlysig.svg", height=12, width=10)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE,Rowv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Beta Coefficient", key.xlab="",keysize = 2, key.ylab=NA, labRow =sigbeta$ASV, na.color="grey")
+
+#dev.off()
+
+```
+#Heatmap of GJAM beta coefficients only GS and E
+```{r}
+sigbeta=read.csv("~/Desktop/SW_gjam_onlyGS_E.csv", header=T, check.names=F)
+
+sigbeta1=as.matrix(sigbeta[,2:3])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "red","red1", "red2", "red3", "red4", "darkred"))(n = 100)
+#svg("~/Desktop/SW_gjam_heatmap_onlysig.svg", height=12, width=10)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE,Rowv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Beta Coefficient", key.xlab="",keysize = 2, key.ylab=NA, labRow =sigbeta$label, na.color="grey")
+
+#dev.off()
+
+```
+
+
+
+
+#Heatmap of GJAM coefficients - only GS and eddy significant beta coefficients 
+```{r}
+sigbeta=read.csv("~/Desktop/SW_gjam_onlyGS_E.csv", header=T, check.names=F)
+
+sigbeta1=as.matrix(sigbeta[,2:3])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "red","red1", "red2", "red3", "red4", "darkred"))(n = 100)
+svg("~/Desktop/SW_gjam_heatmap_onlyGS_E.svg", height=12, width=15)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE,Rowv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Beta Coefficient", key.xlab="",keysize = 2, key.ylab=NA, labRow =sigbeta$taxonomy, na.color="white")
+
+dev.off()
+
+```
+
+
+
+
+
+
+##Only GS and eddy significant beta ASVs
+```{r}
+
+
+top80 = read.csv("~/Desktop/SW_ASVheatmap_onlyGS_E.csv", row.names=1, check.names = F)
+
+
+SWmeta = read.csv("~/Desktop/SW_DNA_meta.csv", row.names=1)
+
+
+##reordering for kcluster
+
+top80k <- top80[, c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60", "SW1", "SW2", "SW3", "SW36", "SW38", "SW4", "SW44", "SW6", "SW62", "SW8", "SW84", "SW86", "SW10", "SW18", "SW20", "SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW48", "SW52", "SW68", "SW12", "SW14", "SW16", "SW28", "SW46", "SW50", "SW64", "SW66", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80", "SW82")] 
+
+
+
+SWmetak <- SWmeta[ c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60", "SW1", "SW2", "SW3", "SW36", "SW38", "SW4", "SW44", "SW6", "SW62", "SW8", "SW84", "SW86", "SW10", "SW18", "SW20", "SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW48", "SW52", "SW68", "SW12", "SW14", "SW16", "SW28", "SW46", "SW50", "SW64", "SW66", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80", "SW82"),] 
+
+
+
+log80k = as.matrix(log(top80k+1))
+
+
+
+colors = c(seq(0,5,length=10),seq(5,10,length=10),seq(10,11, length=10), seq(11, 11.5, length=10),seq(11.5, 12, length=10), seq(12, 12.5, length=10), seq(12.5, 13, length=10), seq(13,13.5, length=10), seq(13.5,14, length=10),seq(14,15,length=10), seq(15,16, length=10))
+
+my_palette <- colorRampPalette(c("violet", "orchid4", "purple3","mediumblue","darkblue","forestgreen", "green3", "yellow", "orange", "red", "darkred" ))(n = 50)
+
+#my_palette2 = colorRampPalette((viridis)(n=50))
+
+
+#svg("~/Desktop/SW_gjam80_heatmap.svg", height=12, width=20)
+heatmap.2(log80k, trace="none", scale="none", col=my_palette,Rowv=FALSE,Colv=FALSE, cexRow=0.9, margins=c(4,5), key.title="Color Scale", key.xlab="",keysize = 2, key.ylab=NA, ColSideColors = SWmetak$kcolor, symkey=F)
+#dev.off()
+```
+########################Supplemental Figures######################
+
+
+###Box plots of temp and salinity for water mass 
+
+
+
+#####Environmental conditions along each transect 
+```{r}
+my_df = read.csv("~/Desktop/SW_DNA_meta.csv")
+
+```
+
+```{r}
+my_df=my_df["Distance" != -999]
+```
+```{r}
+tempt= ggplot(my_df, aes(x=distances, y=Temp)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass), size=3) +
+  theme_bw() +
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("Temperature (C)")
+
+salt= ggplot(my_df, aes(x=distances, y=Sal)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("Salinity (ppt)")
+
+sil= ggplot(my_df, aes(x=distances, y=SIL)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("SiO4 (uM)")
+
+PO4= ggplot(my_df, aes(x=distances, y=PO4)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("PO4 (uM)")
+
+nh4= ggplot(my_df, aes(x=distances, y=SIL)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("NH4 (uM)")
+
+NO3= ggplot(my_df, aes(x=distances, y=NO3)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("NO3 (uM)")
+
+synt= ggplot(my_df, aes(x=distances, y=Syn)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("Synechococcus (cells/mL)")
+
+picot= ggplot(my_df, aes(x=distances, y=PicoCyano)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("Picocyanobacteria (cells/mL)") + scale_y_continuous(labels = label_scientific())
+
+bact= ggplot(my_df, aes(x=distances, y=Bacteria)) +
+  geom_line()+
+  facet_wrap(~Transect, scales="free_x", ncol=1) +
+  geom_point(aes(col=as.factor(kcluster4), shape=water_mass),size=3) +
+  theme_bw()+
+   scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF"))+
+  scale_shape_manual(values = c("shelf" = 15,  "slope" = 19,  "gulfstream" = 3,"eddy" = 17))+ theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  xlab("") + ylab("Bacteria (cells/mL)")
+
+```
+```{r}
+
+svg("~/Desktop/SW_env_byTransect.svg", width=20, height=12)
+ggarrange(tempt, salt, synt, picot, bact, nrow=1, ncol=5,align="hv", common.legend = T)
+dev.off()
+```
+
+
+
+
+
+
+
+
+#####Alpha diversity metrics by cluster
+
+
+
+
+
+
+
+#####################16s Heatmap of top 50 most abundant taxa#########################
+```{r}
+
+
+top250 = read.csv("~/Desktop/SW_heatmap/SW_heatmap_data.csv", header=T, row.names=1, check.names = F)
+
+top250 = top250[,1:49]
+
+log250 = as.matrix(log(top250+1))
+```
+
+
+
+####Comparison of oceanographic water masses and SOM grouping on NMDS plots 
+```{r}
+ocea = ggplot() + 
+  geom_point(data=nmdsall,aes(x=NMDS1,y=NMDS2, colour=swmeta$water_mass),size=4)  +
+  stat_ellipse(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=swmeta$water_mass),level=0.95)+ 
+  theme_bw() +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), legend.position="top")+ labs(color="Water Mass") +scale_color_discrete(breaks=c('shelf', 'slope', 'gulfstream', "eddy"))
+
+
+som = ggplot() + 
+  geom_point(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),size=4)  +scale_color_manual(values = c("1" = "#006600", "2" = "#00CC00", "3" = "#0000CC", "4" = "#3399FF")) +
+  stat_ellipse(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),level=0.95)+
+  theme_bw() +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), legend.position="top") + labs(color="SOM Cluster")
+
+
+
+ggarrange(ocea, som, nrow=1, ncol=2,align="hv")
+
+```
+
+####Microbiome and environment correlation heatmap 
+```{r}
+library(microbiome) # Load libraries
+library(phyloseq)
+library(dplyr)
+library(reshape2)
+#library(knitr)
+
+```
+#Correlation heatmap for lefse discriminative taxa
+```{r}
+
+allasv= read.csv("~/Desktop/SW_final_data/SW_ASV_absabundance_top250t.csv", header=T, check.names = F)
+
+lefse = read.csv("~/Desktop/lefse_asv.csv", header=T)
+
+my_second_df <- filter(allasv,
+                       ASV %in% lefse$ASV)
+```
+
+```{r}
+
+row.names(my_second_df) = my_second_df$ASV
+
+lefseasv=as.data.frame(t(my_second_df))
+
+
+```
+
+```{r}
+lefseasv=lefseasv[-1,]
+```
+```{r}
+
+# Load example data 
+otu <- lefseasv 
+lipids <- swmeta
+
+lipids$logSyn = log(lipids$Syn)
+lipids$logBacteria = log(lipids$Bacteria)
+lipids$logPico = log(lipids$PicoCyano)
+
+lipids = lipids[,c("Temp", "Sal", "ChlaAvg", "NO3", "PO4", "SIL", "NO2", "NH4", "logSyn", "logBacteria", "logPico")]
+# Define data sets to cross-correlate
+x <- log10(otu) # OTU Log10 (44 samples x 130 genera)
+y <- as.matrix(lipids) # Lipids (44 samples x 389 lipids)
+
+# Cross correlate data sets
+correlations <- associate(x, y, method = "spearman", mode = "matrix", p.adj.threshold = 0.05, n.signif = 1)
+
+# Or, alternatively, the same output is also available in a handy table format
+correlation.table <- associate(x, y, method = "spearman", mode = "table", p.adj.threshold = 0.05, n.signif = 1)
+
+
+
+```
+
+```{r}
+p <- heat(correlation.table, "X1", "X2", 
+          fill = "Correlation", 
+          star = "p.adj", 
+          p.adj.threshold = 0.05) 
+p + theme(text=element_text(size=10), 
+          axis.text.x = element_text(angle = 90, hjust = 1), 
+          legend.key.size = unit(1.3, "cm")) 
+
+```
+
+```{r}
+# Order the rows and columns with levels argument if needed:
+correlation.table$X1 <- factor(correlation.table$X1, levels = unique(as.character(correlation.table$X1)))
+correlation.table$X2 <- factor(correlation.table$X2, levels = unique(as.character(correlation.table$X2)))
+
+# Set black-and-white theme
+library(ggplot2)
+theme_set(theme_bw())
+
+# Pick only the correlations with q<0.05
+# Note: this will leave other cells empty
+library(dplyr)
+subtable <- filter(correlation.table, p.adj < 0.05)
+
+# Arrange the figure
+correlation.table$X1 = factor(correlation.table$X1, levels = c("41353","39899", "16066","25676","25688","29391","29415","37872","37887","37894","40663","33047", "15324",
+"15364","28783","28838","37782","29355","38421","40988","11073","38991","41180","36431","36482","32746","40444","35277","34223","16069","27661","30202","40517","37115","25757",
+"17637",
+"31071",
+"31171",
+"31582",
+"40886"), ordered = TRUE)
+
+```
+
+```{r}
+
+
+ levels = c("41353","39899", "16066","25676","25688","29391","29415","37872","37887","37894","40663","33047", "15324",
+"15364","28783","28838","37782","29355","38421","40988","11073","38991","41180","36431","36482","32746","40444","35277","34223","16069","27661","30202","40517","37115","25757",
+"17637",
+"31071",
+"31171",
+"31582",
+"40886")
+lefse=lefse %>%
+  mutate(ASV =  factor(ASV, levels = levels)) %>%
+  arrange(ASV) 
+```
+
+```{r}
+p <- ggplot(correlation.table, aes(x = X1, y = X2, fill = Correlation)) 
+p <- p + geom_tile()
+p <- p + scale_fill_gradientn("Correlation", 
+                       breaks = seq(from = -1, to = 1, by = 0.2), 
+                   colours = c("darkblue", "blue", "white", "red", "darkred"), 
+                   limits = c(-1,1)) 
+
+# Polish texts
+p <- p + theme(axis.text.x=element_text( angle = 90, hjust=1, face = "italic"),
+               axis.text.y=element_text(size = 8)) + scale_x_discrete(labels= lefse$ASV)
+p <- p + xlab("") + ylab("")
+
+# Mark the most significant cells with stars
+p <- p + geom_text(data = subset(correlation.table, p.adj < 0.05), 
+               aes(x = X1, y = X2, label = "*"), col = "white", size = 4) 
+
+
+# Plot
+p
+
+```
+```{r}
+
+svg("~/Desktop/SW_correlation.svg", height=4, width=10)
+p
+dev.off()
+```
+
+#Heatmap of GJAM beta coefficients by clusters
+```{r}
+beta=read.csv("~/Desktop/SW_gjam_beta.csv", header= T, check.names=F)
+sig = read.csv("~/Desktop/SW_gjam_sig.csv", header=T, check.names=F)
+sigbeta=read.csv("~/Desktop/SW_gjam_sig14.csv", header=T, check.names=F)
+```
+
+```{r}
+library(reshape)
+sigbeta=melt(heat_beta[,1:5], id=c("ASV"))
+sigbeta2$ASV=as.character(sigbeta2$ASV)
+
+sigbeta2$ASV<-factor(sigbeta2$ASV,ordered=TRUE, levels= c("35493",
+"26179",
+"27964",
+"41325",
+"40997",
+"39890",
+"34223",
+"39875",
+"39899",
+"34568",
+"31171",
+"17637",
+"30907",
+"28680",
+"14960",
+"15057",
+"28989",
+"15364",
+"15436",
+"31501",
+"31461",
+"41353",
+"41180",
+"37140",
+"41241",
+"41259",
+"40517",
+"37296",
+"37435",
+"37438",
+"40560",
+"37271",
+"41278",
+"29562",
+"41364",
+"40671",
+"29391",
+"40663",
+"37887",
+"37872",
+"38421",
+"38437",
+"25676",
+"30202",
+"29635",
+"40817",
+"40698",
+"40686"))
+
+p <- ggplot(sigbeta2, aes(x = variable, y = ASV, fill = value)) 
+p <- p + geom_tile()
+
+
+p <- p + scale_fill_gradientn("Beta Coefficient", 
+                   colours = c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "white", "red","red1", "red2", "red3", "red4", "darkred"), 
+                   limits = c(-4,4)) 
+
+# Plot
+p
+
+```
+#Average beta coefficient by taxon
+```{r}
+mbeta=melt(beta[,2:6], id=c("taxonomy"))
+p <- ggplot(mbeta, aes(x = variable, y = as.character(taxonomy), fill = value)) 
+p <- p + geom_tile()
+
+
+p <- p + scale_fill_gradientn("Beta Coefficient", 
+                       breaks = seq(from = -3, to = 4, by = 0.5), 
+                   colours = c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "white", "red","red1", "red2", "red3", "red4", "darkred"), 
+                   limits = c(-3,4)) 
+
+# Plot
+p
+
+```
+
+##Heatmap of GJAM beta coefficients (PO4, Temp, Sal, SOM)
+```{r}
+sigbeta=read.csv("~/Desktop/SW_gjam_onlysig14.csv", header=T, check.names=F)
+
+sigbeta1=as.matrix(sigbeta[,2:8])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "grey", "red","red1", "red2", "red3", "red4", "darkred"))(n = 100)
+#svg("~/Desktop/SW_gjam_heatmap_top50.svg", height=12, width=20)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE,cexRow=0.4, margins=c(4,5), key.title="Color Scale", key.xlab="",keysize = 2, key.ylab=NA, cellnote=as.matrix(sigbeta[,9:15]), notecol="white", labRow =sigbeta$Label, na.color="grey")
+
+
+
+```
+###Heatmap GJAM beta coefficients only SOM
+```{r}
+sigbeta=read.csv("~/Desktop/SW_gjam_onlysig12.csv", header=T, check.names=F)
+
+sigbeta1=as.matrix(sigbeta[,2:5])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "grey", "red","red1", "red2", "red3", "red4", "darkred"))(n = 100)
+#svg("~/Desktop/SW_gjam_heatmap_top50.svg", height=12, width=20)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE,Rowv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Beta Coefficient", key.xlab="",keysize = 2, key.ylab=NA, cellnote=as.matrix(sigbeta[,6:9]), notecol="white", labRow =sigbeta$ASV)
+
+
+
+```
+###Heatmap GJAM beta coefficients only SOM and Temp and Sal
+```{r}
+sigbeta=read.csv("~/Desktop/SW_gjam_onlysig15.csv", header=T, check.names=F)
+
+sigbeta1=as.matrix(sigbeta[,2:7])
+mycolors <- colorRampPalette(c("darkblue","blue4", "blue3", "blue2", "blue1", "blue", "grey", "red","red1", "red2", "red3", "red4", "darkred"))(n = 100)
+svg("~/Desktop/SW_gjam_heatmap_SOM_temp_sal.svg", height=12, width=20)
+
+heatmap.2(sigbeta1, trace = "none",scale="none", col = mycolors, Colv=FALSE,cexRow=0.4, margins=c(4,8), key.title="Color Scale", key.xlab="",keysize = 2, key.ylab=NA, cellnote=as.matrix(sigbeta[,8:13]), notecol="white", labRow =sigbeta$Label)
+
+
+dev.off()
+```
+
+#######################Junk code###################
+
+
+```{r}
+
+count = read.csv("~/Desktop/SW_absab_gjam.csv", header=T)
+
+asv = read.csv("~/Desktop/SW_gjam_asvs.csv", header=T)
+
+tax = read.csv("~/Desktop/SW_tax.csv", header=T)
+
+
+```
+
+```{r}
+
+gjam_asvtable = merge(asv, count, by="ASV")
+
+gjam_asvtable_tax = merge(gjam_asvtable, tax, by="ASV")
+
+```
+
+```{r}
+
+write.csv(gjam_asvtable_tax, "~/Desktop/SW_GJAM_ASVtable.csv")
+```
+
+```{r}
+
+env_meta = SWmeta[c("Temp", "Sal", "Syn", "PicoCyano", "Bacteria", "ChlaAvg","NO3", "PO4", "SIL", "NH4")]
+
+env = envfit(swNMDS, env_meta, permutations=9999, na.rm=TRUE)
+
+```
+
+```{r}
+env
+
+```
+
+```{r}
+en_coord_cont = as.data.frame(scores(env, "vectors"))*ordiArrowMul(env)
+
+en_coord_cat = as.data.frame(scores(env, "factors"))*ordiArrowMul(env)
+
+xend = en_coord_cont$NMDS1*0.4
+yend = en_coord_cont$NMDS2*0.4
+
+
+svg("~/Desktop/SW_NMDS_envfit2.svg", width=12, height=8)
+ggplot(data=nmdsall, aes(x=NMDS1, y=NMDS2)) + 
+  geom_point(data=nmdsall, aes(colour=as.factor(SWmeta$kcluster4), shape=SWmeta$water_mass), size=3) +
+  scale_color_manual(values = c("1" = "#00CC00", "2" = "#3399FF", "3" = "#0000CC", "4" = "#006600"))+
+  scale_shape_manual(values = c("eddy" = 17, "gulfstream" = 3, "shelf" = 15, "slope" = 19)) +
+  labs(color="SOM Cluster", shape="Water Mass")+
+  stat_ellipse(data=nmdsall,aes(x=NMDS1,y=NMDS2, color=as.factor(SWmeta$kcluster4)),level=0.95)+
+  geom_segment(aes(x=0, y=0, , xend=xend, yend=yend), data=en_coord_cont, size=0.5, arrow = arrow(length = unit(0.03, "npc"))) +
+geom_text_repel(data=en_coord_cont, aes(x=xend, y=yend),label=row.names(en_coord_cont)) +
+  theme_bw() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank())
+
+dev.off()
+```
+
+```{r}
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")), space="Lab")
+
+#svg("~/Desktop/SW_heatmap_top250_logabsabund.svg")
+heatmap.2(log250, trace="none", scale="none", col=myPalette(100), cexRow=0.4, margins=c(4,5), key.title="Color Scale", key.xlab="x", key.ylab=NA, na.color="grey", ColSideColors = SWmeta$kcolor)
+
+legend(-1, 1, legend=c("1", "2"), fill=c("#808080", "#FFC0CB"), cex=0.5)
+
+#dev.off()
+
+```
+```{r}
+
+heatmap.2(log50k, trace="none", scale="none", col=my_palette, cexRow=0.4, margins=c(4,5), key.title="Color Scale", key.xlab="x", key.ylab=NA, na.color="grey", ColSideColors = SWmeta$kcolor)
+
+```
+
+###Reordering for watermass
+```{r}
+top50w <- top50[, c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60","SW1","SW2", "SW3", "SW4","SW6", "SW8", "SW84", "SW86","SW36","SW38","SW10", "SW18", "SW20","SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW12",  "SW14", "SW16", "SW28", "SW64", "SW66", "SW44", "SW62", "SW48", "SW52","SW68",  "SW46", "SW50", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80",  "SW82")] 
+
+
+```
+```{r}
+SWmetaw <- SWmeta[ c("SW39", "SW40", "SW42", "SW53", "SW54", "SW56", "SW58", "SW60","SW1","SW2", "SW3", "SW4","SW6", "SW8", "SW84", "SW86","SW36","SW38","SW10", "SW18", "SW20","SW21", "SW22", "SW24", "SW26", "SW30", "SW32", "SW34", "SW12",  "SW14", "SW16", "SW28", "SW64", "SW66", "SW44", "SW62", "SW48", "SW52","SW68",  "SW46", "SW50", "SW69", "SW70", "SW72", "SW74", "SW76", "SW78", "SW80",  "SW82"),] 
+
+
+```
+```{r}
+
+log50w = as.matrix(log(top50w+1))
+
+```
+
+```{r}
+
+heatmap.2(log50w, trace="none", scale="none", col=my_palette,Colv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Color Scale", key.xlab="x", key.ylab=NA, na.color="grey", ColSideColors = SWmetaw$wcolor)
+
+```
+
+```{r}
+
+# Classic palette BuPu, with 4 colors
+#coul <- brewer.pal(8, "BrBG") 
+
+# Add more colors to this palette :
+#coul <- colorRampPalette(coul)(500)
+
+fun_color_range <- colorRampPalette(c("blue", "green", "yellow")) 
+my_colors <- fun_color_range(100)  
+```
+
+```{r}
+Colors=c("blue","yellow","red")
+Colors=colorRampPalette(Colors)(400)
+
+```
+
+```{r}
+heatmap.2(log250k[1:50,], trace="none", scale="none", col=my_colors,Colv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Color Scale", key.ylab=NA, na.color="grey", ColSideColors = swmeta$kcolor)
+
+```
+
+```{r}
+
+heatmap.2(log250k[1:50,], trace="none", scale="none", col=my_colors,Colv=FALSE, cexRow=0.4, margins=c(4,5), key.title="Color Scale", key.ylab=NA, na.color="grey", ColSideColors = SWmeta$kcolor)
+
+```
+
+```{r}
+
+tax = read.csv("~/Desktop/SW_tax.csv", header=T)
+asv = read.csv("~/Desktop/SW_betatable_standardizedSOM.csv", header=T)
+
+heat_tax = merge(tax, asv, by="ASV")
+
+write.csv(heat_tax, "~/Desktop/SW_gjam_taxa.csv")
+```
+
+
+###Getting list of taxonomic assignments for heatmap ASVs
+```{r}
+top50 = read.csv("~/Desktop/SW_heatmap_asv.csv", header=T, check.names = F)
+
+asv = read.csv("~/Desktop/SW_heatmap/SW_heatmap_ASV.csv", header=T)
+
+heat_beta = merge(sigbeta, top50, by="ASV")
+
+
+```
+##Organizing to follow heatmap order of ASVs
+```{r}
+
+heat_beta %>% arrange(Order)
+
+```
+```{r}
+write_csv(heat_beta, "~/Desktop/heat_beat.csv")
+```
+
+
+##Testing correlation between eveness and environmental parameters 
+```{r}
+library(ggpubr)
+
+
+ggscatter(alpha, x = "ChlaAvg", y = "pielou", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "spearman",
+          xlab = "Chlorophyll a", ylab = "Pielou's Evenness")
+
+ggscatter(alpha, x = "SIL", y = "pielou", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "spearman",
+          xlab = "SiO4", ylab = "Pielou's Evenness")
+
+```
+
+
+```{r}
+
+pro = read.csv("~/Desktop/SW_ASV30907_percent.csv", header=T)
+
+compare_means(ASV30907 ~ kcluster4,  data = pro, p.adjust.method = "bonferroni")
+ggplot(pro, aes(x = kcluster4, y = ASV30907, colour = kcluster4)) +
+  geom_boxplot(size = 1) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF")) +
+  ylab("Relative Abundance (%)") + 
+  xlab("") +
+  theme_bw() +
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+  stat_compare_means(comparisons=my_comparisons) +scale_x_discrete(labels=c("Shelf", "Slope", "Gulf Stream", "Eddy"))
+```
+
+
+###Importing biom ASV table with absolute abundances as phyloseq object and adding taxonomy labels and metadata
+```{r}
+
+mydata<-read_biom("~/Desktop/SW_files/SW_ASV_absabundance.biom")
+otutable<-as.data.frame(as.matrix(biom_data(mydata))) 
+taxonomy <- observation_metadata(mydata) 
+
+OTU = otu_table(as.matrix(otutable), taxa_are_rows = TRUE)
+TAX = tax_table(as.matrix(taxonomy))
+sample <- as.data.frame(read.csv("~/Desktop/SW_DNA_meta.csv", row.names=1, header=T))
+SAM = sample_data(sample, errorIfNULL = T)
+
+SWphylo <- phyloseq(OTU,TAX, SAM)
+SWphylo
+```
+
+
+###Make sure sample names in the ASV table and meta data match
+```{r}
+
+df <- as.data.frame(lapply(sample_data(SWphylo),function (y) if(class(y)!="factor" ) as.factor(y) else y),stringsAsFactors=T)
+row.names(df) <- sample_names(SWphylo)
+sample_data(SWphylo) <- sample_data(df)
+
+```
+
+##Convert ASV table to relative abundance
+```{r}
+
+swprop <- transform_sample_counts(SWphylo, function(otu) otu/sum(otu))
+
+```
+
+###Convert phyloseq object to usable matrix
+```{r}
+swmelt<-psmelt(swprop)
+
+```
+
+###Extract abundance matrix from the phyloseq object
+```{r}
+
+OTUsw = as(otu_table(swprop), "matrix")
+
+# Coerce to data.frame
+OTUdf = as.data.frame(t(OTUsw))
+```
+
+
+
+#####NMDS plot of Jaccard similarity#####################
+
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", row.names="Sample", check.names=F)
+swmeta=read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv", row.names="Sample")
+sw_otus_dist = vegdist(swasv, "jaccard", binary=T)
+
+swNMDS = metaMDS(sw_otus_dist)
+
+sw_data.scores <- as.data.frame(scores(swNMDS, display="sites"))  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+
+#write.csv(sw_data.scores, "~/Desktop/SW_nmds_data_jacccard_scores.csv", row.names=T)
+
+```
+###Stress plot and stress value for NMDS
+```{r}
+
+stressplot(swNMDS)
+swNMDS$stress
+
+```
+#Read in NMDS data scores (make sure they are in the right order)
+```{r}
+
+nmdsjac <- read.csv("~/Desktop/SW_nmds_data_jacccard_scores.csv", header=T)
+```
+
+
+######Generating NMDS plot with environmental vectors 
+```{r}
+#svg("~/Desktop/SW_NMDS_envfit2.svg", width=12, height=8)
+ggplot(data=nmdsjac, aes(x=NMDS1, y=NMDS2)) + 
+  geom_point(data=nmdsjac, aes(colour=as.factor(swmeta$kcluster4), shape=swmeta$water_mass), size=5) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+
+  scale_shape_manual(values = c("eddy" = 17, "gulfstream" = 3, "shelf" = 15, "slope" = 19)) +
+  labs(color="SOM Cluster", shape="Water Mass")+
+  stat_ellipse(data=nmdsjac,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),level=0.95)+
+  theme_bw() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank())
+
+#dev.off()
+```
+###Running stats to see if NMDS clusters are significantly different 
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", header=T, row.names=1, check.names=F)
+SWmeta=read_csv("~/Desktop/SW_final_data/SW_DNA_meta.csv")
+
+```
+
+
+```{r}
+############################## community statistics ###################################
+library("vegan")
+library("RVAideMemoire") 
+
+otutable <- swasv
+str(otutable)
+
+#betadisper
+bd <- betadisper(sw_otus_dist, swmeta$kcluster4)
+bd
+boxplot(bd)
+anova(bd)
+permutest(bd)
+#adonis
+otutable.adonis <- adonis(otutable[,1:5061] ~swmeta$kcluster4, data=otutable, permutations = 999, method = 'bray')
+otutable.adonis
+
+```
+
+```{r}
+anosim(sw_otus_dist, swmeta$kcluster4, permutations=9999, "jaccard")
+
+#pairwise.perm.manova
+pairperm <- pairwise.perm.manova(sw_otus_dist, swmeta$kcluster4, nperm=9999, "jaccard")
+pairperm
+
+```
+
+#####NMDS plot of sorensen similarity#####################
+
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", row.names="Sample", check.names=F)
+swmeta=read.csv("~/Desktop/SW_final_data/SW_DNA_meta.csv", row.names="Sample")
+sw_otus_dist = vegdist(swasv, "bray", binary=T)
+
+swNMDS = metaMDS(sw_otus_dist)
+
+sw_data.scores <- as.data.frame(scores(swNMDS, display="sites"))  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+
+#write.csv(sw_data.scores, "~/Desktop/SW_nmds_data_sorensen_scores.csv", row.names=T)
+
+```
+###Stress plot and stress value for NMDS
+```{r}
+
+stressplot(swNMDS)
+swNMDS$stress
+
+```
+#Read in NMDS data scores (make sure they are in the right order)
+```{r}
+
+nmdssor <- read.csv("~/Desktop/SW_nmds_data_sorensen_scores.csv", header=T)
+```
+
+
+######Generating NMDS plot with environmental vectors 
+```{r}
+svg("~/Desktop/SW_NMDS_sorensen.svg", width=10, height=6)
+ggplot(data=nmdssor, aes(x=NMDS1, y=NMDS2)) + 
+  geom_point(data=nmdssor, aes(colour=as.factor(swmeta$kcluster4), shape=swmeta$water_mass), size=5) +
+  scale_color_manual(values = c("K1" = "#006600", "K2" = "#00CC00", "K3" = "#0000CC", "K4" = "#3399FF"))+
+  scale_shape_manual(values = c("eddy" = 17, "gulfstream" = 3, "shelf" = 15, "slope" = 19)) +
+  labs(color="SOM Cluster", shape="Water Mass")+
+  stat_ellipse(data=nmdssor,aes(x=NMDS1,y=NMDS2, color=as.factor(swmeta$kcluster4)),level=0.95)+
+  theme_bw() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank())
+
+dev.off()
+```
+###Running stats to see if NMDS clusters are significantly different 
+```{r}
+swasv = read.csv("~/Desktop/SW_final_data/SW_ASV_relab.csv", header=T, row.names=1, check.names=F)
+SWmeta=read_csv("~/Desktop/SW_final_data/SW_DNA_meta.csv")
+
+```
+
+
+```{r}
+############################## community statistics ###################################
+library("vegan")
+library("RVAideMemoire") 
+
+otutable <- swasv
+str(otutable)
+
+#betadisper
+bd <- betadisper(sw_otus_dist, swmeta$kcluster4)
+bd
+boxplot(bd)
+anova(bd)
+permutest(bd)
+#adonis
+otutable.adonis <- adonis(otutable[,1:5061] ~swmeta$kcluster4, data=otutable, permutations = 999, method = 'bray', binary=T)
+otutable.adonis
+
+```
+
+```{r}
+anosim(sw_otus_dist, swmeta$kcluster4, permutations=9999, "sorensen")
+
+#pairwise.perm.manova
+pairperm <- pairwise.perm.manova(sw_otus_dist, swmeta$kcluster4, nperm=9999, "sorensen")
+pairperm
+
+```

@@ -1,0 +1,157 @@
+---
+title: "Untitled"
+author: "Jessica Gronniger"
+date: "2022-12-13"
+output: html_document
+---
+```{r}
+library("DESeq2")
+
+# get count dataset
+count_matrix <- as.matrix(read.csv("~/Desktop/SW_deseq_GS_E_asvtable.csv", row.names = "OTUID"))
+# view first two rows
+head(count_matrix, 2)
+
+# drop length column
+#count_matrix <- count_matrix[, -7]
+#head(count_matrix, 2)
+
+```
+
+```{r}
+
+coldata <- data.frame(
+   sample = c("SW10", "SW18", "SW20","SW21", "SW22","SW24","SW26","SW30","SW32","SW34","SW48","SW52","SW68","SW12","SW14","SW16","SW28","SW46","SW50","SW64","SW66","SW69","SW70","SW72","SW74","SW76","SW78","SW80","SW82" ),
+   condition = c("K3", "K3", "K3","K3", "K3","K3","K3","K3","K3","K3","K3","K3","K3","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4","K4"), 
+  row.names = "sample" )
+coldata$condition <- as.factor(coldata$condition)
+			
+																												
+all(rownames(coldata) %in% colnames(count_matrix))
+
+
+all(rownames(coldata) == colnames(count_matrix))
+
+
+```
+#create deseq file
+```{r}
+
+dds <- DESeqDataSetFromMatrix(countData = round(count_matrix), colData = coldata, 
+                              design = ~ condition)
+
+```
+
+
+
+
+
+#Run DESEQ
+```{r}
+dds <- DESeq(dds)
+
+# see all comparisons (here there is only one)
+resultsNames(dds)
+
+# get gene expression table
+# at this step independent filtering is applied by default to remove low count genes
+# independent filtering can be turned off by passing independentFiltering=FALSE to results
+res <- results(dds)  
+res
+
+```
+
+
+#Save results
+```{r}
+
+write.csv(as.data.frame(res[order(res$padj),] ), file="condition_GS_E_counts+1.csv")
+
+```
+
+#Get summary of significant genes
+```{r}
+
+summary(results(dds, alpha=0.05))
+
+```
+```{r}
+dresults <- read.csv('~/Desktop/SW_deseq_GS_E_results.csv', header=T)
+
+dresults=dresults[1:24,]
+dresults$ASV <- factor(dresults$ASV, levels = dresults$ASV[order(dresults$Order.1)])
+dresults$ASV  # notice the changed order of factor levels
+svg("~/Desktop/SW_GS_E_deseq_plot.svg")
+ggplot(dresults, aes(x = as.factor(ASV), y = log2FoldChange)) + 
+   geom_point(aes(color=factor(sign(log2FoldChange)))) +
+ scale_color_manual(values = c("blue", "black", "red"),
+                     breaks = c("-1", "0", "1"))+  
+  geom_errorbar(aes(ymin=log2FoldChange-lfcSE, ymax=log2FoldChange+lfcSE), width=.1,
+                 position=position_dodge(0.05))+ theme_bw()+
+  theme( panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), axis.text.x = element_text(size=12),
+          axis.text.y = element_text(size=12), panel.border = element_rect(colour = "black", fill=NA, size=1), legend.position="none")+ coord_flip()
+dev.off()
+```
+###Heatmap of lefse results from GS-E comparison
+```{r}
+sigbeta= read.csv("~/Desktop/SW_GS_E_lefse.csv")
+
+```
+
+```{r}
+sigbeta1=as.matrix(sigbeta[,5:6])
+mycolors <- colorRampPalette(c( "red1", "red3", "darkred"))(n = 6)
+
+#svg("~/Desktop/SW_GS_E_lefse_heatmap.svg", height=12, width=20)
+par(mar=c(1,1,1,1))
+heatmap.2(sigbeta1, trace = "none",scale="none", col=mycolors, Colv=FALSE, Rowv=FALSE, cexRow=0.4, margins=c(2,4), key.title="LDA", key.xlab="",keysize = 1, key.ylab=NA, labRow =sigbeta$Order)
+
+#dev.off()
+
+```
+
+##Making tree for GS-E comparison figure
+```{r}
+library(picante)
+library(dplyr)
+library(ggplot2)
+library(ggtree)
+```
+
+```{r}
+## load the top 200 most abundance OTU (row = PID#, column = OTU_ID)
+
+top50_ASV <- dresults
+```
+
+
+
+```{r}
+## load the phylogenetic tree of top 200 OTU
+phylo = read.tree("~/Desktop/sw_silvaalignment_top250_14jul22_deh_phy_phyml/sw_silvaalignment_top250_14jul22_deh_phy_phyml_tree.txt");
+phylo; # a summary of the phylogeny
+plot.phylo(phylo,typ="fan"); # a quick plot
+```
+
+```{r}
+## compare taxa present in phylogenies with top 200 community, prune and sort the two kinds of data to match one another for subsequent analysis
+match.phylo.otu = match.phylo.data(phylo, top50_ASV);
+str(match.phylo.otu);
+```
+
+
+```{r}
+library(castor)
+tree50=get_subtree_with_tips(phylo, only_tips=c( "16069","17584","17637","18024","18179","30907","31071","31171","31265","31582","31645","33911","35394","35723","36357","37435","38073","38742","40306","40686","40886","41241","41275","41297"))
+
+```
+
+```{r}
+plot.phylo(tree50$subtree)
+```
+
+```{r}
+
+write.tree(tree50$subtree, "~/Desktop/SW_GS_E_tree.txt")
+```
+
